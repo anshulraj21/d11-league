@@ -19,8 +19,13 @@ export function AuthProvider({ children }) {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser)
       if (firebaseUser) {
-        const snap = await getDoc(doc(db, 'users', firebaseUser.uid))
-        setProfile(snap.exists() ? snap.data() : null)
+        try {
+          const snap = await getDoc(doc(db, 'users', firebaseUser.uid))
+          setProfile(snap.exists() ? snap.data() : null)
+        } catch {
+          // Firestore offline or permission error — still allow auth to complete
+          setProfile(null)
+        }
       } else {
         setProfile(null)
       }
