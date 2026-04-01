@@ -25,7 +25,8 @@ src/
 │   ├── ocr.js                  — Tesseract.js worker (singleton, lazy init)
 │   ├── ocrParser.js            — Parse Dream11 leaderboard text, fuzzy match team names (Levenshtein)
 │   ├── settlement.js           — Prize calc + greedy debt minimization algorithm
-│   └── upi.js                  — UPI link generator + mobile/desktop detection
+│   ├── upi.js                  — UPI link generator + mobile/desktop detection
+│   └── iplSchedule.js          — Full IPL 2026 schedule (70 matches) + helper functions
 ├── components/
 │   ├── layout/                 — Navbar, ProtectedRoute
 │   └── ui/                     — Button, Input, Modal, Badge, Spinner
@@ -34,19 +35,21 @@ src/
 
 ## Key Firestore Schema
 - `users/{uid}` — displayName, email, dream11TeamName, upiId
-- `leagues/{id}` — name, memberIds[], members map, inviteCode, createdBy
+- `leagues/{id}` — name, memberIds[], members map, inviteCode, createdBy, defaults: {entryFee, maxPlayers, winners}
 - `leagues/{id}/matches/{id}` — matchName, date, entryFee, maxPlayers, prizeRules[], joinedMembers[], results[], status, screenshotUrl
 - `leagues/{id}/matches/{id}/settlements/{id}` — from/to user, amount, upiLink, status (pending/paid)
 - `leagues/{id}/matches/{id}/history/{id}` — changedBy, timestamp, action, previousResults, newResults
 
 ## Key Features
 1. **Auth:** Email/password registration with Dream11 team name + UPI ID
-2. **Leagues:** Create with auto-generated 6-char invite code, join via code
-3. **Matches:** Per-match entry fees, configurable max players (min 2), selectable number of winners (1-4+ with smart presets)
-4. **Results:** Screenshot upload + Tesseract.js OCR with fuzzy matching, OR direct manual entry via modal. Edit results anytime before settlement.
-5. **Audit History:** Every result change logged with who/when/what. Collapsible diff view showing old → new points.
-6. **Settlement:** Greedy algorithm minimizes payment count. UPI deep links for one-tap payment on mobile. Mark paid/pending tracking.
-7. **Standings:** Season-wide earnings leaderboard aggregated across all completed matches.
+2. **Leagues:** Create with auto-generated 6-char invite code, join via code. League-level defaults (entry fee ₹30, max players 10, winners 3).
+3. **IPL Schedule Auto-Load:** One-click loads all 70 IPL 2026 matches with league defaults. Skips already-existing matches (safe to re-click).
+4. **Matches:** Per-match entry fees, configurable max players (min 2), selectable number of winners (1-4+ with smart presets). Editable settings on open matches.
+5. **Match List:** Sorted chronologically (first→last), grouped by date with formatted headers, today's matches highlighted with amber accent + TODAY badge.
+6. **Results:** Screenshot upload + Tesseract.js OCR with fuzzy matching, OR direct manual entry via modal. Edit results anytime before settlement.
+7. **Audit History:** Every result change logged with who/when/what. Collapsible diff view showing old → new points.
+8. **Settlement:** Greedy algorithm minimizes payment count. UPI deep links for one-tap payment on mobile. Mark paid/pending tracking.
+9. **Standings:** Season-wide earnings leaderboard aggregated across all completed matches.
 
 ## Environment Variables (Vercel + .env)
 ```
@@ -74,4 +77,4 @@ vercel --prod      # Deploy to Vercel
 
 ## Session History (March-April 2026)
 - **Session 1:** Discussed requirements (Dream11 companion vs standalone), decided on companion app with Firebase + React. Built entire app from scratch: auth, leagues, matches, OCR, settlement, UPI links. Set up Firebase project (d11-league), deployed to Vercel.
-- **Session 2 (current):** Fixed Vercel env var newline bug causing Firestore 503 errors. Ran full E2E test with 2 users (Sachin + Rohit) on live site — registration, league creation, invite join, match creation, manual result entry, settlement generation, UPI payment, mark paid. Added 4 enhancements: max players field, winner count selector with presets, manual result entry modal, audit history with diffs.
+- **Session 2:** Fixed Vercel env var newline bug causing Firestore 503 errors. Ran full E2E test with 2 users (Sachin + Rohit) on live site — registration, league creation, invite join, match creation, manual result entry, settlement generation, UPI payment, mark paid. Added 4 enhancements: max players field, winner count selector with presets, manual result entry modal, audit history with diffs. Added IPL 2026 schedule auto-loader (70 matches) with league-level defaults. Added match list chronological sort with date grouping and today highlight. Added edit match settings modal (entry fee, max players, winners) on open matches. Generated comprehensive technical + functional documentation (docs/DOCUMENTATION.md).

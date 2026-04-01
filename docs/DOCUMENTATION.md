@@ -2,7 +2,7 @@
 
 **Comprehensive Technical and Functional Documentation**
 
-**Version:** 1.0
+**Version:** 1.1
 **Last Updated:** April 2026
 **Live URL:** https://d11-league.vercel.app
 **Repository:** https://github.com/anshulraj21/d11-league
@@ -63,10 +63,18 @@ Groups of 2--20+ friends who participate in Dream11 private leagues during IPL a
 
 1. From the Dashboard, click **Create League**.
 2. Enter a **League Name** (e.g., "Bros IPL 2026").
-3. Click **Create League**.
-4. A 6-character alphanumeric invite code is auto-generated (excludes ambiguous characters like `0`, `O`, `1`, `I`, `L`).
-5. The creator is automatically added as the first member.
-6. User is redirected to the League Detail page where they can copy the invite code to share.
+3. Set **League Defaults** for auto-created matches: Entry Fee (default ₹30), Max Players (default 10), Number of Winners (default 3).
+4. Click **Create League**.
+5. A 6-character alphanumeric invite code is auto-generated (excludes ambiguous characters like `0`, `O`, `1`, `I`, `L`).
+6. The creator is automatically added as the first member.
+7. User is redirected to the League Detail page where they can copy the invite code to share.
+
+### 2.3a Loading IPL 2026 Schedule
+
+1. On the League Detail page, click **Load IPL Schedule**.
+2. All 70 IPL 2026 league-stage matches are created at once using the league's default settings.
+3. Matches that already exist (by name) are skipped — safe to click multiple times.
+4. Matches are sorted chronologically and grouped by date, with today's matches highlighted.
 
 ### 2.4 Joining a League
 
@@ -161,6 +169,10 @@ Both paths write an audit history entry and set the match status to `completed`.
 | **Payment Tracking** | Mark individual settlements as paid/pending with timestamp tracking. |
 | **Season Standings** | Aggregate earnings leaderboard across all completed matches in a league. |
 | **Real-time Updates** | All data uses Firestore `onSnapshot` listeners for live updates without page refresh. |
+| **IPL Schedule Auto-Load** | One-click loads all 70 IPL 2026 league-stage matches with league defaults. Skips existing matches. |
+| **League Defaults** | Configurable default entry fee (₹30), max players (10), and winners (3) set at league creation. |
+| **Chronological Match View** | Matches sorted first→last by date, grouped by date with formatted headers, today's matches highlighted with amber accent + TODAY badge. |
+| **Edit Match Settings** | Entry fee, max players, and number of winners editable on open matches via modal. |
 | **Responsive Design** | Mobile-first UI built with Tailwind CSS, works on phones, tablets, and desktops. |
 | **Dark Theme** | Dark-mode UI using custom Tailwind color tokens. |
 | **Protected Routes** | All app pages require authentication; unauthenticated users are redirected to login. |
@@ -203,9 +215,9 @@ Both paths write an audit history entry and set the match status to `completed`.
 
 ### 4.5 Create League Page (`/league/create`)
 
-- **Purpose:** Create a new league.
-- **Fields:** League Name (text, required).
-- **Info:** Displays note that an invite code will be auto-generated.
+- **Purpose:** Create a new league with default match settings.
+- **Fields:** League Name (text, required), Default Entry Fee (number, default ₹30), Default Max Players (number, default 10), Default Winners (number, default 3).
+- **Info:** Defaults are used when auto-loading the IPL schedule. An invite code is auto-generated.
 - **Actions:** Create League button. Redirects to league detail on success.
 
 ### 4.6 Join League Page (`/league/join/:inviteCode?`)
@@ -219,9 +231,10 @@ Both paths write an audit history entry and set the match status to `completed`.
 ### 4.7 League Detail Page (`/league/:leagueId`)
 
 - **Purpose:** Central hub for a league with three tabs.
-- **Header:** League name, invite code (click to copy), "+ New Match" button.
+- **Header:** League name, invite code (click to copy), "Load IPL Schedule" button, "+ New Match" button.
+- **League Defaults Bar:** Shows default entry fee, max players, and winners.
 - **Tabs:**
-  - **Matches:** List of match cards showing name, entry fee, joined count, and status badge (open/completed/settled).
+  - **Matches:** Matches sorted chronologically (first→last), grouped by date with formatted headers (e.g., "Sat, 28 Mar"). Today's matches highlighted with amber border and TODAY badge. Each card shows match name, entry fee, joined count (X/Y format when max set), and status badge.
   - **Members:** List of all members with display name, Dream11 team name, and UPI ID.
   - **Standings:** Season-wide earnings leaderboard with rank, player, matches played, and net earnings.
 
@@ -241,12 +254,13 @@ Both paths write an audit history entry and set the match status to `completed`.
 
 - **Purpose:** View match details, join, enter results, and access settlement.
 - **Content:**
-  - Match info card: Entry Fee, Joined count, Prize Pool.
+  - Match info card: Entry Fee, Joined count (X/Y), Prize Pool. "Edit match settings" link on open matches.
   - Prize Distribution breakdown with amounts.
   - Joined Players list.
   - Results table (if completed): Rank, Player, Team Name, Points.
   - Screenshot display (if uploaded).
   - Change History (collapsible): Audit log of all result changes with diffs.
+  - Edit Settings modal: Change entry fee, max players, and number of winners on open matches.
 - **Actions (based on state):**
   - `open` + not joined: **Join Match** button.
   - `open` + joined: **Upload Screenshot + OCR** and **Add Results Manually** buttons.
@@ -306,7 +320,8 @@ C:\Users\anshu\FantasyLeague\
 │   │   ├── ocr.js                   # Tesseract.js worker (singleton, lazy init)
 │   │   ├── ocrParser.js             # OCR text parser + Levenshtein fuzzy matching
 │   │   ├── settlement.js            # Prize calculation + greedy debt minimization
-│   │   └── upi.js                   # UPI deep link generator + mobile detection
+│   │   ├── upi.js                   # UPI deep link generator + mobile detection
+│   │   └── iplSchedule.js           # Full IPL 2026 schedule (70 matches) + getMissingMatches helper
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── Navbar.jsx           # Top navigation bar with profile link and logout
@@ -397,6 +412,7 @@ The application uses Firebase Cloud Firestore (NoSQL document database) hosted i
 | `createdBy` | string | UID of the league creator |
 | `memberIds` | array\<string\> | Array of member UIDs (used for Firestore `array-contains` queries and security rules) |
 | `members` | map | Map of `{uid: {displayName, dream11TeamName, upiId}}` for quick access |
+| `defaults` | map `{entryFee, maxPlayers, winners}` | Default match settings for IPL schedule auto-load (entryFee: 30, maxPlayers: 10, winners: 3) |
 | `createdAt` | timestamp | League creation time |
 
 **Design note:** `memberIds` is an array (queryable) and `members` is a map (fast lookups). Both are maintained in parallel.
