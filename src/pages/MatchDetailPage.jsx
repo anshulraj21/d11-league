@@ -26,6 +26,11 @@ export default function MatchDetailPage() {
   const [manualResults, setManualResults] = useState([])
   const [saving, setSaving] = useState(false)
 
+  // Edit match settings
+  const [showEditSettings, setShowEditSettings] = useState(false)
+  const [editForm, setEditForm] = useState({ entryFee: '', maxPlayers: '', numWinners: '' })
+  const [savingSettings, setSavingSettings] = useState(false)
+
   // Audit history
   const [history, setHistory] = useState([])
   const [showHistory, setShowHistory] = useState(false)
@@ -55,6 +60,39 @@ export default function MatchDetailPage() {
   const isFull = match.maxPlayers && match.joinedMembers?.length >= match.maxPlayers
   const hasResults = match.results?.length > 0
   const canEditResults = match.status !== 'settled'
+  const canEditSettings = match.status === 'open'
+
+  const WINNER_PRESETS = {
+    1: [{ rank: 1, percentage: 100 }],
+    2: [{ rank: 1, percentage: 70 }, { rank: 2, percentage: 30 }],
+    3: [{ rank: 1, percentage: 60 }, { rank: 2, percentage: 25 }, { rank: 3, percentage: 15 }],
+    4: [{ rank: 1, percentage: 50 }, { rank: 2, percentage: 25 }, { rank: 3, percentage: 15 }, { rank: 4, percentage: 10 }],
+  }
+
+  const openEditSettings = () => {
+    setEditForm({
+      entryFee: String(match.entryFee || ''),
+      maxPlayers: String(match.maxPlayers || ''),
+      numWinners: String(match.prizeRules?.length || 3),
+    })
+    setShowEditSettings(true)
+  }
+
+  const handleSaveSettings = async () => {
+    setSavingSettings(true)
+    const fee = parseInt(editForm.entryFee) || 0
+    const maxP = parseInt(editForm.maxPlayers) || null
+    const numW = parseInt(editForm.numWinners) || 3
+    const prizeRules = WINNER_PRESETS[numW] || WINNER_PRESETS[3]
+
+    await updateDoc(doc(db, 'leagues', leagueId, 'matches', matchId), {
+      entryFee: fee,
+      maxPlayers: maxP >= 2 ? maxP : null,
+      prizeRules,
+    })
+    setSavingSettings(false)
+    setShowEditSettings(false)
+  }
 
   const handleJoin = async () => {
     if (isFull) return
@@ -171,6 +209,14 @@ export default function MatchDetailPage() {
               <p className="text-xs text-text-muted">Pool</p>
             </div>
           </div>
+          {canEditSettings && (
+            <button
+              onClick={openEditSettings}
+              className="w-full mt-3 pt-3 border-t border-surface-lighter text-xs text-primary-light hover:underline cursor-pointer bg-transparent border-x-0 border-b-0"
+            >
+              Edit match settings
+            </button>
+          )}
         </div>
 
         {/* Prize Breakdown */}
@@ -340,6 +386,55 @@ export default function MatchDetailPage() {
           ))}
           <Button className="w-full" onClick={handleSaveManualResults} loading={saving}>
             Save Results
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Edit Settings Modal */}
+      <Modal open={showEditSettings} onClose={() => setShowEditSettings(false)} title="Edit Match Settings">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-muted mb-1">Entry Fee (₹)</label>
+            <input
+              type="number"
+              value={editForm.entryFee}
+              onChange={(e) => setEditForm({ ...editForm, entryFee: e.target.value })}
+              min="0"
+              className="w-full px-3 py-2 bg-surface border border-surface-lighter rounded-lg text-text text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-muted mb-1">Max Players</label>
+            <input
+              type="number"
+              value={editForm.maxPlayers}
+              onChange={(e) => setEditForm({ ...editForm, maxPlayers: e.target.value })}
+              min="2"
+              placeholder="No limit"
+              className="w-full px-3 py-2 bg-surface border border-surface-lighter rounded-lg text-text text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-muted mb-2">Number of Winners</label>
+            <div className="flex gap-2">
+              {[1, 2, 3, 4].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setEditForm({ ...editForm, numWinners: String(n) })}
+                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer border
+                    ${editForm.numWinners === String(n)
+                      ? 'bg-primary text-white border-primary'
+                      : 'bg-surface border-surface-lighter text-text-muted hover:border-primary/50'
+                    }`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Button className="w-full" onClick={handleSaveSettings} loading={savingSettings}>
+            Save Settings
           </Button>
         </div>
       </Modal>
