@@ -167,7 +167,7 @@ export default function LeagueDetailPage() {
 
         {/* Tab Content */}
         {activeTab === 'Matches' && (
-          <MatchesTab matches={matches} loading={matchesLoading} leagueId={leagueId} />
+          <MatchesTab matches={matches} loading={matchesLoading} leagueId={leagueId} liveMatchIds={liveMatchIds} />
         )}
         {activeTab === 'Members' && (
           <MembersTab members={league.members} />
@@ -186,7 +186,7 @@ function formatDate(dateStr) {
   return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
-function MatchesTab({ matches, loading, leagueId }) {
+function MatchesTab({ matches, loading, leagueId, liveMatchIds }) {
   if (loading) return <Spinner className="mt-8" />
 
   if (matches.length === 0) {
