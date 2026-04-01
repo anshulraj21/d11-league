@@ -104,6 +104,8 @@ export default function MatchDetailPage() {
   const isOpen = effectiveStatus === 'open'
   const canEditResults = effectiveStatus !== 'settled'
   const canEditSettings = isOpen
+  const isLeagueAdmin = league?.createdBy === user.uid
+  const canEndMatch = isLeagueAdmin && (isOpen || effectiveStatus === 'live' || effectiveStatus === 'closed')
 
   const WINNER_PRESETS = {
     1: [{ rank: 1, percentage: 100 }],
@@ -135,6 +137,12 @@ export default function MatchDetailPage() {
     })
     setSavingSettings(false)
     setShowEditSettings(false)
+  }
+
+  const handleEndMatch = async () => {
+    await updateDoc(doc(db, 'leagues', leagueId, 'matches', matchId), {
+      status: 'completed',
+    })
   }
 
   const handleJoin = async () => {
@@ -408,6 +416,13 @@ export default function MatchDetailPage() {
             <div className="bg-surface-lighter rounded-xl p-4 text-center text-text-muted text-sm">
               You've joined! Results can be added after the match ends.
             </div>
+          )}
+
+          {/* League admin: End Match manually */}
+          {canEndMatch && !hasResults && (
+            <Button className="w-full" variant="danger" onClick={handleEndMatch}>
+              End Match (Admin)
+            </Button>
           )}
 
           {/* Add/Edit results — only when match has ended (closed, completed, or live-ended) */}
