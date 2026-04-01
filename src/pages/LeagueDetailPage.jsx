@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
+import { collection, addDoc } from 'firebase/firestore'
+import { db } from '../config/firebase'
 import { useLeague } from '../hooks/useLeague'
 import { useMatches } from '../hooks/useMatches'
 import { useAuth } from '../contexts/AuthContext'
@@ -8,6 +10,7 @@ import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
 import Spinner from '../components/ui/Spinner'
 import { copyToClipboard } from '../lib/upi'
+import { getMissingMatches } from '../lib/iplSchedule'
 
 const tabs = ['Matches', 'Members', 'Standings']
 
@@ -19,6 +22,8 @@ export default function LeagueDetailPage() {
   const [activeTab, setActiveTab] = useState('Matches')
   const navigate = useNavigate()
   const [copied, setCopied] = useState(false)
+  const [loadingSchedule, setLoadingSchedule] = useState(false)
+  const [scheduleLoaded, setScheduleLoaded] = useState(false)
 
   if (loading) return <><Navbar /><Spinner className="mt-12" /></>
   if (!league) return <><Navbar /><p className="text-center mt-12 text-text-muted">League not found</p></>
@@ -27,6 +32,44 @@ export default function LeagueDetailPage() {
     await copyToClipboard(league.inviteCode)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const defaults = league.defaults || { entryFee: 30, maxPlayers: 10, winners: 3 }
+  const WINNER_PRESETS = {
+    1: [{ rank: 1, percentage: 100 }],
+    2: [{ rank: 1, percentage: 70 }, { rank: 2, percentage: 30 }],
+    3: [{ rank: 1, percentage: 60 }, { rank: 2, percentage: 25 }, { rank: 3, percentage: 15 }],
+    4: [{ rank: 1, percentage: 50 }, { rank: 2, percentage: 25 }, { rank: 3, percentage: 15 }, { rank: 4, percentage: 10 }],
+  }
+
+  const handleLoadIPLSchedule = async () => {
+    setLoadingSchedule(true)
+    const existingNames = matches.map((m) => m.matchName)
+    const missing = getMissingMatches(existingNames)
+
+    const w = defaults.winners || 3
+    const prizeRules = WINNER_PRESETS[w] || WINNER_PRESETS[3]
+
+    for (const m of missing) {
+      await addDoc(collection(db, 'leagues', leagueId, 'matches'), {
+        matchName: m.teams,
+        entryFee: defaults.entryFee || 30,
+        date: m.date,
+        maxPlayers: defaults.maxPlayers || 10,
+        prizeRules,
+        joinedMembers: [],
+        results: [],
+        screenshotUrl: '',
+        ocrRawText: '',
+        status: 'open',
+        addedBy: user.uid,
+        createdAt: new Date(),
+      })
+    }
+
+    setLoadingSchedule(false)
+    setScheduleLoaded(true)
+    setTimeout(() => setScheduleLoaded(false), 3000)
   }
 
   // Calculate standings from all completed matches
@@ -47,7 +90,21 @@ export default function LeagueDetailPage() {
               Invite: {league.inviteCode} {copied ? '(Copied!)' : '(Click to copy)'}
             </button>
           </div>
-          <Button size="sm" onClick={() => navigate(`/league/${leagueId}/match/create`)}>+ New Match</Button>
+          <div className="flex gap-2 flex-shrink-0">
+            <Button size="sm" variant="secondary" onClick={handleLoadIPLSchedule} loading={loadingSchedule}>
+              {scheduleLoaded ? 'Loaded!' : 'Load IPL Schedule'}
+            </Button>
+            <Button size="sm" onClick={() => navigate(`/league/${leagueId}/match/create`)}>+ New Match</Button>
+          </div>
+        </div>
+
+        {/* League Defaults Info */}
+        <div className="flex gap-3 mb-4 text-xs text-text-muted">
+          <span>Default: ₹{defaults.entryFee}/match</span>
+          <span>&middot;</span>
+          <span>{defaults.maxPlayers} players</span>
+          <span>&middot;</span>
+          <span>{defaults.winners} winners</span>
         </div>
 
         {/* Tabs */}
