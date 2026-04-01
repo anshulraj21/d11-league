@@ -11,6 +11,7 @@ import Badge from '../components/ui/Badge'
 import Spinner from '../components/ui/Spinner'
 import { copyToClipboard } from '../lib/upi'
 import { getMissingMatches } from '../lib/iplSchedule'
+import { getEffectiveStatus, getStatusBadge } from '../lib/matchStatus'
 
 const tabs = ['Matches', 'Members', 'Standings']
 
@@ -200,12 +201,10 @@ function MatchesTab({ matches, loading, leagueId }) {
                         ₹{match.entryFee} &middot; {match.joinedMembers?.length || 0}{match.maxPlayers ? `/${match.maxPlayers}` : ''} joined
                       </p>
                     </div>
-                    <Badge variant={
-                      match.status === 'settled' ? 'success' :
-                      match.status === 'completed' ? 'accent' : 'primary'
-                    }>
-                      {match.status}
-                    </Badge>
+                    {(() => {
+                      const s = getStatusBadge(getEffectiveStatus(match))
+                      return <Badge variant={s.variant}>{s.label}</Badge>
+                    })()}
                   </div>
                 </Link>
               ))}

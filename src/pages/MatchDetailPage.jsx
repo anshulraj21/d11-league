@@ -12,6 +12,8 @@ import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
 import Spinner from '../components/ui/Spinner'
 import Modal from '../components/ui/Modal'
+import { getEffectiveStatus, getStatusBadge } from '../lib/matchStatus'
+import { isApiConfigured, fetchCurrentMatches, findMatchingApiMatch, getApiMatchStatus } from '../lib/cricketApi'
 
 export default function MatchDetailPage() {
   const { leagueId, matchId } = useParams()
@@ -31,11 +33,49 @@ export default function MatchDetailPage() {
   const [editForm, setEditForm] = useState({ entryFee: '', maxPlayers: '', numWinners: '' })
   const [savingSettings, setSavingSettings] = useState(false)
 
+  // Live match data from CricAPI
+  const [liveStatus, setLiveStatus] = useState(null) // 'live' | 'match_ended' | null
+  const [liveScore, setLiveScore] = useState(null)
+
   // Audit history
   const [history, setHistory] = useState([])
   const [showHistory, setShowHistory] = useState(false)
 
   const match = matches.find((m) => m.id === matchId)
+
+  // Fetch live match data from CricAPI
+  useEffect(() => {
+    if (!match || match.status !== 'open') return
+    if (!isApiConfigured()) return
+
+    const today = new Date().toISOString().split('T')[0]
+    if (match.date !== today) return // Only check live data for today's matches
+
+    let cancelled = false
+    const checkLive = async () => {
+      const apiMatches = await fetchCurrentMatches()
+      if (cancelled) return
+      const apiMatch = findMatchingApiMatch(match, apiMatches)
+      if (apiMatch) {
+        const status = getApiMatchStatus(apiMatch)
+        setLiveStatus(status)
+        setLiveScore(apiMatch.score || null)
+
+        // Auto-update Firestore if match ended
+        if (status === 'match_ended' && match.status === 'open') {
+          await updateDoc(doc(db, 'leagues', leagueId, 'matches', matchId), {
+            status: 'completed',
+            liveData: { matchEnded: true, score: apiMatch.score, statusText: apiMatch.matchStatus },
+          }).catch(() => {})
+        }
+      }
+    }
+    checkLive()
+
+    // Poll every 2 minutes for live matches
+    const interval = setInterval(checkLive, 120000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [match?.date, match?.status, match?.matchName, leagueId, matchId])
 
   // Listen to history subcollection
   useEffect(() => {
@@ -55,12 +95,15 @@ export default function MatchDetailPage() {
   if (loading) return <><Navbar /><Spinner className="mt-12" /></>
   if (!match) return <><Navbar /><p className="text-center mt-12 text-text-muted">Match not found</p></>
 
+  const effectiveStatus = liveStatus === 'live' ? 'live' : getEffectiveStatus(match)
+  const statusBadge = getStatusBadge(effectiveStatus)
   const hasJoined = match.joinedMembers?.includes(user.uid)
   const pool = match.entryFee * (match.joinedMembers?.length || 0)
   const isFull = match.maxPlayers && match.joinedMembers?.length >= match.maxPlayers
   const hasResults = match.results?.length > 0
-  const canEditResults = match.status !== 'settled'
-  const canEditSettings = match.status === 'open'
+  const isOpen = effectiveStatus === 'open'
+  const canEditResults = effectiveStatus !== 'settled'
+  const canEditSettings = isOpen
 
   const WINNER_PRESETS = {
     1: [{ rank: 1, percentage: 100 }],
@@ -183,11 +226,8 @@ export default function MatchDetailPage() {
             <h1 className="text-2xl font-bold mt-2">{match.matchName}</h1>
             <p className="text-text-muted text-sm mt-1">{match.date}</p>
           </div>
-          <Badge variant={
-            match.status === 'settled' ? 'success' :
-            match.status === 'completed' ? 'accent' : 'primary'
-          }>
-            {match.status}
+          <Badge variant={statusBadge.variant}>
+            {statusBadge.label}
           </Badge>
         </div>
 
@@ -335,19 +375,35 @@ export default function MatchDetailPage() {
 
         {/* Actions */}
         <div className="space-y-2">
-          {match.status === 'open' && !hasJoined && !isFull && (
+          {/* Live score banner */}
+          {liveStatus === 'live' && liveScore?.length > 0 && (
+            <div className="bg-danger/10 border border-danger/30 rounded-xl p-3 mb-2 text-center">
+              <p className="text-xs text-danger font-bold uppercase tracking-wide mb-1">LIVE</p>
+              {liveScore.map((s, i) => (
+                <p key={i} className="text-sm font-medium">{s.r}/{s.w} ({s.o} ov) — {s.inning}</p>
+              ))}
+            </div>
+          )}
+
+          {effectiveStatus === 'closed' && !hasResults && (
+            <div className="bg-surface-lighter rounded-xl p-4 text-center text-text-muted text-sm">
+              This match date has passed. Upload results to complete it.
+            </div>
+          )}
+
+          {isOpen && !hasJoined && !isFull && (
             <Button className="w-full" loading={joining} onClick={handleJoin}>
               Join Match (₹{match.entryFee})
             </Button>
           )}
 
-          {match.status === 'open' && !hasJoined && isFull && (
+          {isOpen && !hasJoined && isFull && (
             <Button className="w-full" disabled>
               Match Full ({match.joinedMembers?.length}/{match.maxPlayers})
             </Button>
           )}
 
-          {match.status === 'open' && hasJoined && (
+          {isOpen && hasJoined && (
             <>
               <Button className="w-full" variant="secondary" onClick={() => navigate(`/league/${leagueId}/match/${matchId}/upload`)}>
                 Upload Screenshot + OCR
@@ -358,10 +414,21 @@ export default function MatchDetailPage() {
             </>
           )}
 
-          {(match.status === 'completed' || match.status === 'settled') && (
-            <Button className="w-full" variant={match.status === 'settled' ? 'success' : 'primary'} onClick={() => navigate(`/league/${leagueId}/match/${matchId}/settle`)}>
+          {(effectiveStatus === 'completed' || effectiveStatus === 'settled') && (
+            <Button className="w-full" variant={effectiveStatus === 'settled' ? 'success' : 'primary'} onClick={() => navigate(`/league/${leagueId}/match/${matchId}/settle`)}>
               View Settlement
             </Button>
+          )}
+
+          {(effectiveStatus === 'closed' || liveStatus === 'live') && hasJoined && (
+            <>
+              <Button className="w-full" variant="secondary" onClick={() => navigate(`/league/${leagueId}/match/${matchId}/upload`)}>
+                Upload Screenshot + OCR
+              </Button>
+              <Button className="w-full" variant="ghost" onClick={openManualEntry}>
+                {hasResults ? 'Edit Results' : 'Add Results Manually'}
+              </Button>
+            </>
           )}
         </div>
       </div>
