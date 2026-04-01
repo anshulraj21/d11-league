@@ -149,12 +149,13 @@ export default function SettlementPage() {
 
                 {s.status === 'pending' && (
                   <div className="flex gap-2">
-                    {s.upiLink && isMobile() && (
+                    {/* Pay via UPI — only visible to the payer */}
+                    {s.fromUserId === user.uid && s.upiLink && isMobile() && (
                       <a href={s.upiLink} className="flex-1">
                         <Button size="sm" className="w-full">Pay via UPI</Button>
                       </a>
                     )}
-                    {s.upiLink && !isMobile() && (
+                    {s.fromUserId === user.uid && s.upiLink && !isMobile() && (
                       <Button
                         size="sm"
                         variant="secondary"
@@ -167,13 +168,16 @@ export default function SettlementPage() {
                         {copiedId === s.id ? 'Copied!' : 'Copy UPI ID'}
                       </Button>
                     )}
-                    <Button
-                      size="sm"
-                      variant="success"
-                      onClick={() => handleMarkPaid(s.id)}
-                    >
-                      Mark Paid
-                    </Button>
+                    {/* Mark Paid — only visible to the receiver */}
+                    {s.toUserId === user.uid && (
+                      <Button
+                        size="sm"
+                        variant="success"
+                        onClick={() => handleMarkPaid(s.id)}
+                      >
+                        Mark Paid
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
