@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
-import { doc, updateDoc, arrayUnion } from 'firebase/firestore'
+import {
+  doc, updateDoc, collection, query, orderBy, onSnapshot, addDoc, runTransaction,
+} from 'firebase/firestore'
 import { db } from '../config/firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { useLeague } from '../hooks/useLeague'
@@ -9,29 +11,125 @@ import Navbar from '../components/layout/Navbar'
 import Button from '../components/ui/Button'
 import Badge from '../components/ui/Badge'
 import Spinner from '../components/ui/Spinner'
+import Modal from '../components/ui/Modal'
 
 export default function MatchDetailPage() {
   const { leagueId, matchId } = useParams()
   const { league } = useLeague(leagueId)
   const { matches, loading } = useMatches(leagueId)
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const navigate = useNavigate()
   const [joining, setJoining] = useState(false)
 
+  // Manual entry state
+  const [showManualEntry, setShowManualEntry] = useState(false)
+  const [manualResults, setManualResults] = useState([])
+  const [saving, setSaving] = useState(false)
+
+  // Audit history
+  const [history, setHistory] = useState([])
+  const [showHistory, setShowHistory] = useState(false)
+
   const match = matches.find((m) => m.id === matchId)
+
+  // Listen to history subcollection
+  useEffect(() => {
+    if (!leagueId || !matchId) return
+    const q = query(
+      collection(db, 'leagues', leagueId, 'matches', matchId, 'history'),
+      orderBy('timestamp', 'desc')
+    )
+    const unsub = onSnapshot(q, (snap) => {
+      setHistory(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    }, () => {
+      // Ignore permission errors for history subcollection
+    })
+    return unsub
+  }, [leagueId, matchId])
 
   if (loading) return <><Navbar /><Spinner className="mt-12" /></>
   if (!match) return <><Navbar /><p className="text-center mt-12 text-text-muted">Match not found</p></>
 
   const hasJoined = match.joinedMembers?.includes(user.uid)
   const pool = match.entryFee * (match.joinedMembers?.length || 0)
+  const isFull = match.maxPlayers && match.joinedMembers?.length >= match.maxPlayers
+  const hasResults = match.results?.length > 0
+  const canEditResults = match.status !== 'settled'
 
   const handleJoin = async () => {
+    if (isFull) return
     setJoining(true)
-    await updateDoc(doc(db, 'leagues', leagueId, 'matches', matchId), {
-      joinedMembers: arrayUnion(user.uid),
-    })
+    try {
+      const matchRef = doc(db, 'leagues', leagueId, 'matches', matchId)
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(matchRef)
+        const data = snap.data()
+        if (data.maxPlayers && data.joinedMembers.length >= data.maxPlayers) {
+          throw new Error('Match is full')
+        }
+        if (data.joinedMembers.includes(user.uid)) return
+        transaction.update(matchRef, { joinedMembers: [...data.joinedMembers, user.uid] })
+      })
+    } catch (err) {
+      console.error('Join error:', err)
+    }
     setJoining(false)
+  }
+
+  // Manual entry handlers
+  const openManualEntry = () => {
+    const members = match.joinedMembers || []
+    setManualResults(
+      members.map((uid) => {
+        const existing = match.results?.find((r) => r.userId === uid)
+        return {
+          userId: uid,
+          displayName: league?.members?.[uid]?.displayName || '',
+          dream11TeamName: league?.members?.[uid]?.dream11TeamName || '',
+          points: existing ? String(existing.points) : '',
+        }
+      })
+    )
+    setShowManualEntry(true)
+  }
+
+  const updateManualResult = (index, value) => {
+    const updated = [...manualResults]
+    updated[index] = { ...updated[index], points: value }
+    setManualResults(updated)
+  }
+
+  const handleSaveManualResults = async () => {
+    setSaving(true)
+    const results = manualResults
+      .filter((r) => r.points !== '')
+      .map((r) => ({
+        userId: r.userId,
+        displayName: r.displayName,
+        dream11TeamName: r.dream11TeamName,
+        points: parseFloat(r.points),
+        rank: 0,
+      }))
+      .sort((a, b) => b.points - a.points)
+      .map((r, i) => ({ ...r, rank: i + 1 }))
+
+    // Write audit history
+    await addDoc(collection(db, 'leagues', leagueId, 'matches', matchId, 'history'), {
+      changedBy: { userId: user.uid, displayName: profile?.displayName || user.email },
+      timestamp: new Date(),
+      action: hasResults ? 'results_updated' : 'results_added',
+      previousResults: match.results || [],
+      newResults: results,
+    })
+
+    // Update match
+    await updateDoc(doc(db, 'leagues', leagueId, 'matches', matchId), {
+      results,
+      status: 'completed',
+    })
+
+    setSaving(false)
+    setShowManualEntry(false)
   }
 
   return (
@@ -63,7 +161,9 @@ export default function MatchDetailPage() {
               <p className="text-xs text-text-muted">Entry Fee</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-primary-light">{match.joinedMembers?.length || 0}</p>
+              <p className="text-2xl font-bold text-primary-light">
+                {match.joinedMembers?.length || 0}{match.maxPlayers ? `/${match.maxPlayers}` : ''}
+              </p>
               <p className="text-xs text-text-muted">Joined</p>
             </div>
             <div>
@@ -101,9 +201,19 @@ export default function MatchDetailPage() {
         </div>
 
         {/* Results (if completed) */}
-        {match.results?.length > 0 && (
+        {hasResults && (
           <div className="bg-surface-light border border-surface-lighter rounded-xl overflow-hidden mb-4">
-            <h3 className="text-sm font-medium text-text-muted p-4 pb-2">Results</h3>
+            <div className="flex items-center justify-between p-4 pb-2">
+              <h3 className="text-sm font-medium text-text-muted">Results</h3>
+              {canEditResults && (
+                <button
+                  onClick={openManualEntry}
+                  className="text-xs text-primary-light hover:underline cursor-pointer bg-transparent border-none"
+                >
+                  Edit Results
+                </button>
+              )}
+            </div>
             {match.results.sort((a, b) => a.rank - b.rank).map((r, i) => (
               <div
                 key={r.userId}
@@ -134,18 +244,72 @@ export default function MatchDetailPage() {
           </div>
         )}
 
+        {/* Change History */}
+        {history.length > 0 && (
+          <div className="bg-surface-light border border-surface-lighter rounded-xl p-4 mb-4">
+            <button
+              onClick={() => setShowHistory(!showHistory)}
+              className="flex items-center justify-between w-full text-sm font-medium text-text-muted cursor-pointer bg-transparent border-none text-left"
+            >
+              <span>Change History ({history.length})</span>
+              <span>{showHistory ? '▲' : '▼'}</span>
+            </button>
+            {showHistory && (
+              <div className="mt-3 space-y-3">
+                {history.map((h) => (
+                  <div key={h.id} className="bg-surface rounded-lg p-3 text-sm">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium">{h.changedBy?.displayName || 'Unknown'}</span>
+                      <span className="text-xs text-text-muted">
+                        {h.timestamp?.toDate ? h.timestamp.toDate().toLocaleString() : new Date(h.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+                    <Badge variant={h.action === 'results_added' ? 'success' : 'accent'}>
+                      {h.action === 'results_added' ? 'Results Added' : 'Results Updated'}
+                    </Badge>
+                    {h.action === 'results_updated' && h.previousResults?.length > 0 && (
+                      <div className="mt-2 text-xs text-text-muted space-y-0.5">
+                        {h.newResults?.map((nr) => {
+                          const prev = h.previousResults.find((p) => p.userId === nr.userId)
+                          const changed = prev && prev.points !== nr.points
+                          return (
+                            <p key={nr.userId} className={changed ? 'text-accent' : ''}>
+                              {nr.displayName}: {prev ? `${prev.points} → ` : ''}{nr.points} pts
+                            </p>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Actions */}
         <div className="space-y-2">
-          {match.status === 'open' && !hasJoined && (
+          {match.status === 'open' && !hasJoined && !isFull && (
             <Button className="w-full" loading={joining} onClick={handleJoin}>
               Join Match (₹{match.entryFee})
             </Button>
           )}
 
-          {match.status === 'open' && hasJoined && (
-            <Button className="w-full" variant="secondary" onClick={() => navigate(`/league/${leagueId}/match/${matchId}/upload`)}>
-              Upload Results
+          {match.status === 'open' && !hasJoined && isFull && (
+            <Button className="w-full" disabled>
+              Match Full ({match.joinedMembers?.length}/{match.maxPlayers})
             </Button>
+          )}
+
+          {match.status === 'open' && hasJoined && (
+            <>
+              <Button className="w-full" variant="secondary" onClick={() => navigate(`/league/${leagueId}/match/${matchId}/upload`)}>
+                Upload Screenshot + OCR
+              </Button>
+              <Button className="w-full" variant="ghost" onClick={openManualEntry}>
+                {hasResults ? 'Edit Results' : 'Add Results Manually'}
+              </Button>
+            </>
           )}
 
           {(match.status === 'completed' || match.status === 'settled') && (
@@ -155,6 +319,30 @@ export default function MatchDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Manual Entry Modal */}
+      <Modal open={showManualEntry} onClose={() => setShowManualEntry(false)} title={hasResults ? 'Edit Results' : 'Enter Results Manually'}>
+        <div className="space-y-3">
+          {manualResults.map((r, i) => (
+            <div key={r.userId} className="bg-surface rounded-lg p-3">
+              <p className="text-sm font-medium mb-1.5">
+                {r.displayName} <span className="text-text-muted">({r.dream11TeamName})</span>
+              </p>
+              <input
+                type="number"
+                placeholder="Points"
+                value={r.points}
+                onChange={(e) => updateManualResult(i, e.target.value)}
+                step="0.5"
+                className="w-full px-3 py-2 bg-surface-light border border-surface-lighter rounded-lg text-text text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+          ))}
+          <Button className="w-full" onClick={handleSaveManualResults} loading={saving}>
+            Save Results
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }

@@ -105,7 +105,7 @@ function MatchesTab({ matches, loading, leagueId }) {
             <div>
               <h3 className="font-semibold text-text">{match.matchName}</h3>
               <p className="text-sm text-text-muted mt-1">
-                Entry: ₹{match.entryFee} &middot; {match.joinedMembers?.length || 0} joined
+                Entry: ₹{match.entryFee} &middot; {match.joinedMembers?.length || 0}{match.maxPlayers ? `/${match.maxPlayers}` : ''} joined
               </p>
             </div>
             <Badge variant={

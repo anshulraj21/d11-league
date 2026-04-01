@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { doc, updateDoc } from 'firebase/firestore'
+import { doc, updateDoc, addDoc, collection } from 'firebase/firestore'
 import { db } from '../config/firebase'
+import { useAuth } from '../contexts/AuthContext'
 import { useLeague } from '../hooks/useLeague'
 import { useMatches } from '../hooks/useMatches'
 import { extractTextFromImage } from '../lib/ocr'
@@ -13,6 +14,7 @@ import Badge from '../components/ui/Badge'
 
 export default function UploadResultsPage() {
   const { leagueId, matchId } = useParams()
+  const { user, profile } = useAuth()
   const { league } = useLeague(leagueId)
   const { matches } = useMatches(leagueId)
   const navigate = useNavigate()
@@ -121,6 +123,15 @@ export default function UploadResultsPage() {
         reader.readAsDataURL(file)
       })
     }
+
+    // Write audit history
+    await addDoc(collection(db, 'leagues', leagueId, 'matches', matchId, 'history'), {
+      changedBy: { userId: user.uid, displayName: profile?.displayName || user.email },
+      timestamp: new Date(),
+      action: match.results?.length > 0 ? 'results_updated' : 'results_added',
+      previousResults: match.results || [],
+      newResults: results,
+    })
 
     await updateDoc(doc(db, 'leagues', leagueId, 'matches', matchId), {
       results,
