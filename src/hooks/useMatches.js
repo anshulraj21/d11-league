@@ -11,7 +11,7 @@ export function useMatches(leagueId) {
 
     const q = query(
       collection(db, 'leagues', leagueId, 'matches'),
-      orderBy('createdAt', 'desc')
+      orderBy('date', 'asc')
     )
 
     const unsub = onSnapshot(q, (snap) => {

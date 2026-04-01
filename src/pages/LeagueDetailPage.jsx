@@ -139,41 +139,80 @@ export default function LeagueDetailPage() {
   )
 }
 
+function formatDate(dateStr) {
+  if (!dateStr) return ''
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
 function MatchesTab({ matches, loading, leagueId }) {
   if (loading) return <Spinner className="mt-8" />
 
   if (matches.length === 0) {
     return (
       <div className="text-center py-12 text-text-muted">
-        <p>No matches yet. Create one to get started!</p>
+        <p>No matches yet. Create one or load the IPL schedule!</p>
       </div>
     )
   }
 
+  const today = new Date().toISOString().split('T')[0]
+
+  // Group matches by date
+  const grouped = {}
+  for (const match of matches) {
+    const date = match.date || 'Unknown'
+    if (!grouped[date]) grouped[date] = []
+    grouped[date].push(match)
+  }
+
   return (
-    <div className="space-y-3">
-      {matches.map((match) => (
-        <Link
-          key={match.id}
-          to={`/league/${leagueId}/match/${match.id}`}
-          className="block bg-surface-light border border-surface-lighter rounded-xl p-4 hover:border-primary/50 transition-colors no-underline"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-text">{match.matchName}</h3>
-              <p className="text-sm text-text-muted mt-1">
-                Entry: ₹{match.entryFee} &middot; {match.joinedMembers?.length || 0}{match.maxPlayers ? `/${match.maxPlayers}` : ''} joined
-              </p>
+    <div className="space-y-4">
+      {Object.entries(grouped).map(([date, dateMatches]) => {
+        const isToday = date === today
+        return (
+          <div key={date}>
+            <div className={`flex items-center gap-2 mb-2 ${isToday ? 'text-accent' : 'text-text-muted'}`}>
+              <span className="text-xs font-semibold uppercase tracking-wide">
+                {formatDate(date)}
+              </span>
+              {isToday && (
+                <span className="text-[10px] bg-accent/20 text-accent px-1.5 py-0.5 rounded-full font-bold">
+                  TODAY
+                </span>
+              )}
             </div>
-            <Badge variant={
-              match.status === 'settled' ? 'success' :
-              match.status === 'completed' ? 'accent' : 'primary'
-            }>
-              {match.status}
-            </Badge>
+            <div className="space-y-2">
+              {dateMatches.map((match) => (
+                <Link
+                  key={match.id}
+                  to={`/league/${leagueId}/match/${match.id}`}
+                  className={`block rounded-xl p-4 hover:border-primary/50 transition-colors no-underline border
+                    ${isToday
+                      ? 'bg-accent/5 border-accent/30'
+                      : 'bg-surface-light border-surface-lighter'
+                    }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-text">{match.matchName}</h3>
+                      <p className="text-sm text-text-muted mt-1">
+                        ₹{match.entryFee} &middot; {match.joinedMembers?.length || 0}{match.maxPlayers ? `/${match.maxPlayers}` : ''} joined
+                      </p>
+                    </div>
+                    <Badge variant={
+                      match.status === 'settled' ? 'success' :
+                      match.status === 'completed' ? 'accent' : 'primary'
+                    }>
+                      {match.status}
+                    </Badge>
+                  </div>
+                </Link>
+              ))}
+            </div>
           </div>
-        </Link>
-      ))}
+        )
+      })}
     </div>
   )
 }
