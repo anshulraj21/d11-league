@@ -2,7 +2,7 @@
 
 **Comprehensive Technical and Functional Documentation**
 
-**Version:** 1.1
+**Version:** 1.2
 **Last Updated:** April 2026
 **Live URL:** https://d11-league.vercel.app
 **Repository:** https://github.com/anshulraj21/d11-league
@@ -107,6 +107,8 @@ Groups of 2--20+ friends who participate in Dream11 private leagues during IPL a
 
 ### 2.7 Uploading Results (OCR + Manual)
 
+**Timing:** Result entry buttons ("Upload Screenshot + OCR" and "Add Results Manually") only appear after the match has ended -- i.e., the effective status is `closed`, `completed`, or CricAPI reports the match as ended. While the match is still open, joined players see the message: "You've joined! Results can be added after the match ends."
+
 **OCR Path:**
 1. On the Match Detail page, click **Upload Screenshot + OCR**.
 2. Click the upload area to select a Dream11 leaderboard screenshot (PNG/JPG, up to ~500KB recommended).
@@ -138,6 +140,13 @@ Both paths write an audit history entry and set the match status to `completed`.
 6. **On mobile:** A "Pay via UPI" button opens the UPI payment app (GPay, PhonePe, etc.) with pre-filled details.
 7. **On desktop:** A "Copy UPI ID" button copies the payee's UPI ID to the clipboard.
 8. After payment, click **Mark Paid** to update the settlement status.
+
+**Permission model:** Payment action buttons are scoped to relevant users only:
+- **Pay via UPI / Copy UPI ID:** Only visible to the payer (`fromUserId === current user`).
+- **Mark Paid:** Only visible to the receiver (`toUserId === current user`).
+- Other league members can view settlement details but see no action buttons.
+
+**Settlement vs. Settled status:** The match status only becomes `settled` when ALL settlements are marked as paid. Generating settlements alone does not change the match status.
 
 ### 2.9 Viewing Standings
 
@@ -174,6 +183,11 @@ Both paths write an audit history entry and set the match status to `completed`.
 | **Chronological Match View** | Matches sorted first→last by date, grouped by date with formatted headers, today's matches highlighted with amber accent + TODAY badge. |
 | **Edit Match Settings** | Entry fee, max players, and number of winners editable on open matches via modal. |
 | **Responsive Design** | Mobile-first UI built with Tailwind CSS, works on phones, tablets, and desktops. |
+| **CricAPI Live Match Integration** | Real-time match status via CricAPI (cricketdata.org). Auto-checks today's matches on league page load. LIVE badge on match cards, live score banner (runs/wickets/overs) on match detail page. Polls every 3 min on league page, every 2 min on match detail. Auto-marks match as completed when API detects match ended. |
+| **Auto-Close Past-Dated Matches** | Matches with a date before today and status `open` are automatically treated as `closed` via `getEffectiveStatus()`. Red closed badge displayed. |
+| **Match Status Lifecycle** | Full lifecycle: open -> live (CricAPI) -> closed (past date) -> completed (results entered) -> settled (all payments confirmed). Match only becomes settled when ALL settlements are marked paid. |
+| **Results Entry Timing** | Results entry (manual and OCR) only available after match ends. Open matches show informational message instead of result entry buttons. |
+| **Settlement Permission Model** | Pay via UPI / Copy UPI ID only visible to the payer. Mark Paid only visible to the receiver. Other users see settlement info without action buttons. |
 | **Dark Theme** | Dark-mode UI using custom Tailwind color tokens. |
 | **Protected Routes** | All app pages require authentication; unauthenticated users are redirected to login. |
 
@@ -234,7 +248,7 @@ Both paths write an audit history entry and set the match status to `completed`.
 - **Header:** League name, invite code (click to copy), "Load IPL Schedule" button, "+ New Match" button.
 - **League Defaults Bar:** Shows default entry fee, max players, and winners.
 - **Tabs:**
-  - **Matches:** Matches sorted chronologically (first→last), grouped by date with formatted headers (e.g., "Sat, 28 Mar"). Today's matches highlighted with amber border and TODAY badge. Each card shows match name, entry fee, joined count (X/Y format when max set), and status badge.
+  - **Matches:** Matches sorted chronologically (first→last), grouped by date with formatted headers (e.g., "Sat, 28 Mar"). Today's matches highlighted with amber border and TODAY badge. Each card shows match name, entry fee, joined count (X/Y format when max set), and status badge. **Live matches** show a LIVE badge (detected via CricAPI auto-check on page load, polling every 3 minutes). Past-dated open matches automatically display a red CLOSED badge.
   - **Members:** List of all members with display name, Dream11 team name, and UPI ID.
   - **Standings:** Season-wide earnings leaderboard with rank, player, matches played, and net earnings.
 
@@ -261,9 +275,11 @@ Both paths write an audit history entry and set the match status to `completed`.
   - Screenshot display (if uploaded).
   - Change History (collapsible): Audit log of all result changes with diffs.
   - Edit Settings modal: Change entry fee, max players, and number of winners on open matches.
+- **Live Score Banner:** When CricAPI detects the match is in progress, a live score banner displays runs, wickets, and overs. Polls every 2 minutes for updates.
 - **Actions (based on state):**
   - `open` + not joined: **Join Match** button.
-  - `open` + joined: **Upload Screenshot + OCR** and **Add Results Manually** buttons.
+  - `open` + joined: Informational message ("Results can be added after the match ends."). Result entry buttons are hidden.
+  - `closed`/`completed` + joined: **Upload Screenshot + OCR** and **Add Results Manually** buttons.
   - `completed`/`settled`: **View Settlement** button.
   - Results exist + not settled: **Edit Results** link.
 
@@ -283,11 +299,13 @@ Both paths write an audit history entry and set the match status to `completed`.
 - **Content:**
   - Winners section: Rank, name, prize amount for each winner.
   - Payments list: Each settlement card shows payer, payee, amount, and status badge.
-- **Actions per settlement:**
-  - Mobile: **Pay via UPI** (opens payment app).
-  - Desktop: **Copy UPI ID** (copies to clipboard).
-  - Both: **Mark Paid** button.
+- **Actions per settlement (permission-scoped):**
+  - Mobile: **Pay via UPI** (opens payment app) -- only visible to the payer.
+  - Desktop: **Copy UPI ID** (copies to clipboard) -- only visible to the payer.
+  - **Mark Paid** button -- only visible to the receiver.
+  - Other users see settlement details (payer, payee, amount, status) but no action buttons.
 - **Generate Settlements:** Button appears when match is completed but settlements haven't been created yet.
+- **Settled status:** Match becomes `settled` only when all settlements are marked as paid.
 
 ---
 
@@ -321,7 +339,9 @@ C:\Users\anshu\FantasyLeague\
 │   │   ├── ocrParser.js             # OCR text parser + Levenshtein fuzzy matching
 │   │   ├── settlement.js            # Prize calculation + greedy debt minimization
 │   │   ├── upi.js                   # UPI deep link generator + mobile detection
-│   │   └── iplSchedule.js           # Full IPL 2026 schedule (70 matches) + getMissingMatches helper
+│   │   ├── iplSchedule.js           # Full IPL 2026 schedule (70 matches) + getMissingMatches helper
+│   │   ├── cricketApi.js            # CricAPI integration for live scores, match status, team name mapping
+│   │   └── matchStatus.js           # getEffectiveStatus() + getStatusBadge() for match lifecycle
 │   ├── components/
 │   │   ├── layout/
 │   │   │   ├── Navbar.jsx           # Top navigation bar with profile link and logout
@@ -376,6 +396,7 @@ All data reads use `onSnapshot` for real-time updates. Writes use `addDoc`, `upd
 | **React Router DOM** | 7.13.2 | Client-side routing (SPA) |
 | **Firebase** | 12.11.0 | Authentication + Firestore database |
 | **Tesseract.js** | 7.0.0 | Client-side OCR (image-to-text) |
+| **CricAPI** | (external API) | Live cricket scores and match status from cricketdata.org (100 free calls/day) |
 | **Vite** | 8.0.1 | Build tool and dev server |
 | **Tailwind CSS** | 4.2.2 | Utility-first CSS framework |
 | **@tailwindcss/vite** | 4.2.2 | Tailwind Vite plugin integration |
@@ -432,11 +453,11 @@ The application uses Firebase Cloud Firestore (NoSQL document database) hosted i
 | `results` | array\<{userId, displayName, dream11TeamName, points, rank}\> | Final results sorted by rank |
 | `screenshotUrl` | string | Base64-encoded screenshot image (data URL); empty string if none |
 | `ocrRawText` | string | Raw text extracted by Tesseract.js OCR; empty string if manual entry |
-| `status` | string | One of: `open`, `completed`, `settled` |
+| `status` | string | One of: `open`, `live`, `closed`, `completed`, `settled` |
 | `addedBy` | string | UID of the user who created the match |
 | `createdAt` | timestamp | Match creation time |
 
-**Status lifecycle:** `open` (accepting joins and results) --> `completed` (results entered) --> `settled` (settlements generated).
+**Status lifecycle:** `open` (accepting joins) --> `live` (CricAPI detects match in progress) --> `closed` (match date has passed, via `getEffectiveStatus()`) --> `completed` (results entered) --> `settled` (all settlements marked as paid). Note: `closed` is a virtual status computed client-side by `matchStatus.js` when the stored status is `open` but the match date is in the past.
 
 ### Subcollection: `settlements`
 
@@ -706,9 +727,10 @@ VITE_FIREBASE_PROJECT_ID=your-project-id
 VITE_FIREBASE_STORAGE_BUCKET=your-project.firebasestorage.app
 VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
 VITE_FIREBASE_APP_ID=your-app-id
+VITE_CRICKET_API_KEY=your-cricapi-key
 ```
 
-**Important:** The `VITE_` prefix is required by Vite to expose these variables to the client bundle. This is safe because Firebase client config is not secret -- security is enforced by Firestore rules.
+**Important:** The `VITE_` prefix is required by Vite to expose these variables to the client bundle. This is safe because Firebase client config is not secret -- security is enforced by Firestore rules. The `VITE_CRICKET_API_KEY` is a CricAPI key from cricketdata.org (free tier: 100 API calls/day). Live score features are disabled gracefully if this key is not set.
 
 **Vercel caveat:** When setting env vars in Vercel, ensure there are no trailing newlines (use `printf` not heredoc syntax in shell).
 

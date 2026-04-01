@@ -11,6 +11,7 @@ A companion web app for Dream11 private leagues (IPL 2026, 10+ friends). Users r
 - **Frontend:** React 19 (Vite 8) + Tailwind CSS v4 + React Router v7
 - **Backend:** Firebase Auth (email/password) + Firestore (NoSQL)
 - **OCR:** Tesseract.js (free, client-side, in-browser)
+- **Live Cricket Data:** CricAPI (cricketdata.org) — 100 free calls/day, auto-detects live/ended matches
 - **Payments:** UPI deep links (`upi://pay?...`) — opens GPay/PhonePe on mobile, copy UPI ID on desktop
 - **Hosting:** Vercel (free tier, auto-deploys from GitHub)
 - **Storage:** Screenshots stored as base64 in Firestore docs (Firebase Storage requires paid Blaze plan)
@@ -26,7 +27,9 @@ src/
 │   ├── ocrParser.js            — Parse Dream11 leaderboard text, fuzzy match team names (Levenshtein)
 │   ├── settlement.js           — Prize calc + greedy debt minimization algorithm
 │   ├── upi.js                  — UPI link generator + mobile/desktop detection
-│   └── iplSchedule.js          — Full IPL 2026 schedule (70 matches) + helper functions
+│   ├── iplSchedule.js          — Full IPL 2026 schedule (70 matches) + helper functions
+│   ├── matchStatus.js          — Effective status logic (auto-close past matches) + badge helpers
+│   └── cricketApi.js           — CricAPI integration (live scores, match status, team mapping)
 ├── components/
 │   ├── layout/                 — Navbar, ProtectedRoute
 │   └── ui/                     — Button, Input, Modal, Badge, Spinner
@@ -46,15 +49,18 @@ src/
 3. **IPL Schedule Auto-Load:** One-click loads all 70 IPL 2026 matches with league defaults. Skips already-existing matches (safe to re-click).
 4. **Matches:** Per-match entry fees, configurable max players (min 2), selectable number of winners (1-4+ with smart presets). Editable settings on open matches.
 5. **Match List:** Sorted chronologically (first→last), grouped by date with formatted headers, today's matches highlighted with amber accent + TODAY badge.
-6. **Results:** Screenshot upload + Tesseract.js OCR with fuzzy matching, OR direct manual entry via modal. Edit results anytime before settlement.
-7. **Audit History:** Every result change logged with who/when/what. Collapsible diff view showing old → new points.
-8. **Settlement:** Greedy algorithm minimizes payment count. UPI deep links for one-tap payment on mobile. Mark paid/pending tracking.
-9. **Standings:** Season-wide earnings leaderboard aggregated across all completed matches.
+6. **Match Status Lifecycle:** open → live (CricAPI) → closed (past date) → completed (results entered) → settled (all payments confirmed). Past-dated open matches auto-show as "closed".
+7. **Live Match Integration:** CricAPI auto-checks today's matches on league page load, shows LIVE badge, live scores, auto-marks completed when match ends. Polls every 3 min.
+8. **Results:** Screenshot upload + Tesseract.js OCR with fuzzy matching, OR direct manual entry via modal. Results entry only available after match ends. Edit results anytime before settlement.
+9. **Audit History:** Every result change logged with who/when/what. Collapsible diff view showing old → new points.
+10. **Settlement:** Greedy algorithm minimizes payment count. UPI deep links for one-tap payment on mobile. Pay button only for payer, Mark Paid only for receiver. Match becomes "settled" only when ALL payments confirmed.
+11. **Standings:** Season-wide earnings leaderboard aggregated across all completed matches.
 
 ## Environment Variables (Vercel + .env)
 ```
 VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID,
-VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID
+VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID,
+VITE_CRICKET_API_KEY
 ```
 Note: VITE_ prefix makes these public — that's fine for Firebase client config. Security is enforced by Firestore rules.
 
@@ -78,3 +84,4 @@ vercel --prod      # Deploy to Vercel
 ## Session History (March-April 2026)
 - **Session 1:** Discussed requirements (Dream11 companion vs standalone), decided on companion app with Firebase + React. Built entire app from scratch: auth, leagues, matches, OCR, settlement, UPI links. Set up Firebase project (d11-league), deployed to Vercel.
 - **Session 2:** Fixed Vercel env var newline bug causing Firestore 503 errors. Ran full E2E test with 2 users (Sachin + Rohit) on live site — registration, league creation, invite join, match creation, manual result entry, settlement generation, UPI payment, mark paid. Added 4 enhancements: max players field, winner count selector with presets, manual result entry modal, audit history with diffs. Added IPL 2026 schedule auto-loader (70 matches) with league-level defaults. Added match list chronological sort with date grouping and today highlight. Added edit match settings modal (entry fee, max players, winners) on open matches. Generated comprehensive technical + functional documentation (docs/DOCUMENTATION.md).
+- **Session 3:** Added CricAPI live match integration (auto-check on league page load, LIVE badge, auto-complete on match end, 3-min polling). Added auto-close for past-dated matches. Results entry restricted to after match ends. Settlement UPI pay button only for payer, Mark Paid only for receiver. Fixed settlement status bug (now only 'settled' when all payments confirmed). Fixed liveMatchIds prop crash on league page.
