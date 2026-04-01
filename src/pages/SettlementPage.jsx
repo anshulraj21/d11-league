@@ -69,10 +69,7 @@ export default function SettlementPage() {
     }
 
     await batch.commit()
-    await updateDoc(doc(db, 'leagues', leagueId, 'matches', matchId), {
-      status: 'settled',
-    })
-
+    // Don't mark as 'settled' yet — only when all payments are confirmed
     setGenerating(false)
   }
 
@@ -81,6 +78,16 @@ export default function SettlementPage() {
       doc(db, 'leagues', leagueId, 'matches', matchId, 'settlements', settlementId),
       { status: 'paid', paidAt: new Date() }
     )
+
+    // Check if ALL settlements are now paid → mark match as settled
+    const remaining = existingSettlements.filter(
+      (s) => s.id !== settlementId && s.status === 'pending'
+    )
+    if (remaining.length === 0) {
+      await updateDoc(doc(db, 'leagues', leagueId, 'matches', matchId), {
+        status: 'settled',
+      })
+    }
   }
 
   const handleCopyUpi = async (upiId, id) => {
