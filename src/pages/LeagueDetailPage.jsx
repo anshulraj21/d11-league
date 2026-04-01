@@ -13,6 +13,7 @@ import { copyToClipboard } from '../lib/upi'
 import { getMissingMatches } from '../lib/iplSchedule'
 import { getEffectiveStatus, getStatusBadge } from '../lib/matchStatus'
 import { isApiConfigured, fetchCurrentMatches, findMatchingApiMatch, getApiMatchStatus } from '../lib/cricketApi'
+import { computeSettlements } from '../lib/settlement'
 
 const tabs = ['Matches', 'Members', 'Standings']
 
@@ -116,6 +117,9 @@ export default function LeagueDetailPage() {
   // Calculate standings from all completed matches
   const standings = computeStandings(matches, league.members)
 
+  // Calculate overall pending settlements across all unsettled matches
+  const pendingPayments = computePendingPayments(matches, league.members)
+
   return (
     <div>
       <Navbar />
@@ -147,6 +151,26 @@ export default function LeagueDetailPage() {
           <span>&middot;</span>
           <span>{defaults.winners} winners</span>
         </div>
+
+        {/* Pending Payments Summary */}
+        {pendingPayments.length > 0 && (
+          <div className="bg-accent/5 border border-accent/30 rounded-xl p-4 mb-4">
+            <h3 className="text-sm font-semibold text-accent mb-2">Pending Settlements</h3>
+            <div className="space-y-2">
+              {pendingPayments.map((p, i) => (
+                <div key={i} className="flex items-center justify-between text-sm">
+                  <span>
+                    <span className="font-medium text-text">{p.from}</span>
+                    <span className="text-text-muted"> owes </span>
+                    <span className="font-medium text-text">{p.to}</span>
+                  </span>
+                  <span className="font-bold text-accent">₹{p.amount}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-text-muted mt-2">Across all unsettled matches</p>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex border-b border-surface-lighter mb-4">
@@ -352,4 +376,43 @@ function computeStandings(matches, members) {
   }
 
   return Object.values(stats).sort((a, b) => b.earnings - a.earnings)
+}
+
+/**
+ * Compute overall pending payments across all completed (unsettled) matches.
+ * Aggregates net balances per person across matches, then runs the greedy settlement.
+ */
+function computePendingPayments(matches, members) {
+  const netBalances = {} // userId → { displayName, balance }
+
+  for (const match of matches) {
+    // Only include completed matches (not yet fully settled)
+    if (match.status !== 'completed') continue
+    if (!match.results?.length) continue
+
+    const pool = match.entryFee * (match.joinedMembers?.length || 0)
+    const prizeMap = {}
+    for (const rule of (match.prizeRules || [])) {
+      prizeMap[rule.rank] = Math.round((pool * rule.percentage) / 100)
+    }
+
+    for (const r of match.results) {
+      const name = r.displayName || members?.[r.userId]?.displayName || 'Unknown'
+      if (!netBalances[r.userId]) {
+        netBalances[r.userId] = { userId: r.userId, displayName: name, balance: 0 }
+      }
+      const prize = prizeMap[r.rank] || 0
+      netBalances[r.userId].balance += prize - match.entryFee
+    }
+  }
+
+  const balances = Object.values(netBalances).filter((b) => b.balance !== 0)
+  if (balances.length === 0) return []
+
+  const settlements = computeSettlements(balances)
+  return settlements.map((s) => ({
+    from: s.from.displayName,
+    to: s.to.displayName,
+    amount: s.amount,
+  }))
 }
