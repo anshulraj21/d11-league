@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
-import { collection, addDoc } from 'firebase/firestore'
+import { collection, addDoc, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../config/firebase'
 import { useLeague } from '../hooks/useLeague'
 import { useMatches } from '../hooks/useMatches'
@@ -12,6 +12,7 @@ import Spinner from '../components/ui/Spinner'
 import { copyToClipboard } from '../lib/upi'
 import { getMissingMatches } from '../lib/iplSchedule'
 import { getEffectiveStatus, getStatusBadge } from '../lib/matchStatus'
+import { isApiConfigured, fetchCurrentMatches, findMatchingApiMatch, getApiMatchStatus } from '../lib/cricketApi'
 
 const tabs = ['Matches', 'Members', 'Standings']
 
@@ -25,6 +26,45 @@ export default function LeagueDetailPage() {
   const [copied, setCopied] = useState(false)
   const [loadingSchedule, setLoadingSchedule] = useState(false)
   const [scheduleLoaded, setScheduleLoaded] = useState(false)
+  const [liveMatchIds, setLiveMatchIds] = useState(new Set())
+
+  // Auto-check today's matches via CricAPI on page load
+  useEffect(() => {
+    if (!leagueId || matchesLoading || !matches.length || !isApiConfigured()) return
+
+    const today = new Date().toISOString().split('T')[0]
+    const todaysOpenMatches = matches.filter((m) => m.date === today && m.status === 'open')
+    if (todaysOpenMatches.length === 0) return
+
+    let cancelled = false
+    const checkMatches = async () => {
+      const apiMatches = await fetchCurrentMatches()
+      if (cancelled || !apiMatches.length) return
+
+      const newLiveIds = new Set()
+      for (const m of todaysOpenMatches) {
+        const apiMatch = findMatchingApiMatch(m, apiMatches)
+        if (!apiMatch) continue
+
+        const status = getApiMatchStatus(apiMatch)
+        if (status === 'live') {
+          newLiveIds.add(m.id)
+        } else if (status === 'match_ended') {
+          // Auto-mark as completed in Firestore
+          await updateDoc(doc(db, 'leagues', leagueId, 'matches', m.id), {
+            status: 'completed',
+            liveData: { matchEnded: true, score: apiMatch.score, statusText: apiMatch.matchStatus },
+          }).catch(() => {})
+        }
+      }
+      if (!cancelled) setLiveMatchIds(newLiveIds)
+    }
+    checkMatches()
+
+    // Re-check every 3 minutes while page is open
+    const interval = setInterval(checkMatches, 180000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [leagueId, matchesLoading, matches.length])
 
   if (loading) return <><Navbar /><Spinner className="mt-12" /></>
   if (!league) return <><Navbar /><p className="text-center mt-12 text-text-muted">League not found</p></>
@@ -202,6 +242,9 @@ function MatchesTab({ matches, loading, leagueId }) {
                       </p>
                     </div>
                     {(() => {
+                      if (liveMatchIds.has(match.id)) {
+                        return <Badge variant="danger">LIVE</Badge>
+                      }
                       const s = getStatusBadge(getEffectiveStatus(match))
                       return <Badge variant={s.variant}>{s.label}</Badge>
                     })()}
