@@ -391,6 +391,7 @@ export default function MatchDetailPage() {
             </div>
           )}
 
+          {/* Join — only when match is open and not full */}
           {isOpen && !hasJoined && !isFull && (
             <Button className="w-full" loading={joining} onClick={handleJoin}>
               Join Match (₹{match.entryFee})
@@ -404,6 +405,13 @@ export default function MatchDetailPage() {
           )}
 
           {isOpen && hasJoined && (
+            <div className="bg-surface-lighter rounded-xl p-4 text-center text-text-muted text-sm">
+              You've joined! Results can be added after the match ends.
+            </div>
+          )}
+
+          {/* Add/Edit results — only when match has ended (closed, completed, or live-ended) */}
+          {(effectiveStatus === 'closed' || effectiveStatus === 'completed' || liveStatus === 'match_ended') && hasJoined && canEditResults && (
             <>
               <Button className="w-full" variant="secondary" onClick={() => navigate(`/league/${leagueId}/match/${matchId}/upload`)}>
                 Upload Screenshot + OCR
@@ -414,21 +422,11 @@ export default function MatchDetailPage() {
             </>
           )}
 
+          {/* Settlement — when results are in */}
           {(effectiveStatus === 'completed' || effectiveStatus === 'settled') && (
             <Button className="w-full" variant={effectiveStatus === 'settled' ? 'success' : 'primary'} onClick={() => navigate(`/league/${leagueId}/match/${matchId}/settle`)}>
               View Settlement
             </Button>
-          )}
-
-          {(effectiveStatus === 'closed' || liveStatus === 'live') && hasJoined && (
-            <>
-              <Button className="w-full" variant="secondary" onClick={() => navigate(`/league/${leagueId}/match/${matchId}/upload`)}>
-                Upload Screenshot + OCR
-              </Button>
-              <Button className="w-full" variant="ghost" onClick={openManualEntry}>
-                {hasResults ? 'Edit Results' : 'Add Results Manually'}
-              </Button>
-            </>
           )}
         </div>
       </div>
